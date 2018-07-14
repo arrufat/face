@@ -29,6 +29,8 @@
 
 #include <dlib/opencv.h>
 #include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <dlib/cmd_line_parser.h>
 #include <dlib/image_processing/frontal_face_detector.h>
 #include <dlib/image_processing/render_face_detections.h>
 #include <dlib/image_processing.h>
@@ -37,8 +39,21 @@
 using namespace dlib;
 using namespace std;
 
-int main()
+int main(int argc, char** argv)
 {
+    dlib::command_line_parser parser;
+    parser.add_option("mirror", "Mirror mode (left-right flip)");
+    parser.add_option("fast", "Use a faster, less accurate model");
+    parser.add_option("h","Display this help message.");
+    parser.parse(argc, argv);
+
+    if (parser.option("h"))
+    {
+        cout << "Usage: " << argv[0] << " [options] <list.txt>\n";
+        parser.print_options();
+        return EXIT_SUCCESS;
+    }
+
     try
     {
         cv::VideoCapture cap(0);
@@ -70,18 +85,30 @@ int main()
             // to reallocate the memory which stores the image as that will make cimg
             // contain dangling pointers.  This basically means you shouldn't modify temp
             // while using cimg.
-            cv_image<bgr_pixel> cimg(temp);
+            cv::Mat tmp_rgb;
+            cv::cvtColor(temp, tmp_rgb, cv::COLOR_BGR2RGB);
+            cv_image<rgb_pixel> cv_img(tmp_rgb);
+            dlib::matrix<rgb_pixel> mir_img, img;
+            if (parser.option("mirror"))
+            {
+                dlib::flip_image_left_right(cv_img, mir_img);
+                dlib::assign_image(img, mir_img);
+            }
+            else
+            {
+                dlib::assign_image(img, cv_img);
+            }
 
             // Detect faces
-            std::vector<rectangle> faces = detector(cimg);
+            std::vector<rectangle> faces = detector(img);
             // Find the pose of each face.
             std::vector<full_object_detection> shapes;
             for (unsigned long i = 0; i < faces.size(); ++i)
-                shapes.push_back(pose_model(cimg, faces[i]));
+                shapes.push_back(pose_model(img, faces[i]));
 
             // Display it all on the screen
             win.clear_overlay();
-            win.set_image(cimg);
+            win.set_image(img);
             win.add_overlay(render_face_detections(shapes));
         }
     }
