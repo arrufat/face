@@ -1,36 +1,8 @@
-// The contents of this file are in the public domain. See LICENSE_FOR_EXAMPLE_PROGRAMS.txt
-/*
-
-    This example program shows how to find frontal human faces in an image and
-    estimate their pose.  The pose takes the form of 68 landmarks.  These are
-    points on the face such as the corners of the mouth, along the eyebrows, on
-    the eyes, and so forth.
-
-
-    This example is essentially just a version of the face_landmark_detection_ex.cpp
-    example modified to use OpenCV's VideoCapture object to read from a camera instead
-    of files.
-
-
-    Finally, note that the face detector is fastest when compiled with at least
-    SSE2 instructions enabled.  So if you are using a PC with an Intel or AMD
-    chip then you should enable at least SSE2 instructions.  If you are using
-    cmake to compile this program you can enable them by using one of the
-    following commands when you create the build project:
-        cmake path_to_dlib_root/examples -DUSE_SSE2_INSTRUCTIONS=ON
-        cmake path_to_dlib_root/examples -DUSE_SSE4_INSTRUCTIONS=ON
-        cmake path_to_dlib_root/examples -DUSE_AVX_INSTRUCTIONS=ON
-    This will set the appropriate compiler options for GCC, clang, Visual
-    Studio, or the Intel compiler.  If you are using another compiler then you
-    need to consult your compiler's manual to determine how to enable these
-    instructions.  Note that AVX is the fastest but requires a CPU from at least
-    2011.  SSE4 is the next fastest and is supported by most current machines.
-*/
-
 #include <dlib/opencv.h>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <dlib/cmd_line_parser.h>
+#include <dlib/dnn.h>
 #include <dlib/image_processing/frontal_face_detector.h>
 #include <dlib/image_processing/render_face_detections.h>
 #include <dlib/image_processing.h>
@@ -38,6 +10,14 @@
 
 using namespace dlib;
 using namespace std;
+
+template <long num_filters, typename SUBNET> using con5d = con<num_filters,5,5,2,2,SUBNET>;
+template <long num_filters, typename SUBNET> using con5  = con<num_filters,5,5,1,1,SUBNET>;
+
+template <typename SUBNET> using downsampler  = relu<affine<con5d<32, relu<affine<con5d<32, relu<affine<con5d<16,SUBNET>>>>>>>>>;
+template <typename SUBNET> using rcon5  = relu<affine<con5<45,SUBNET>>>;
+
+using net_type = loss_mmod<con<1,9,9,1,1,rcon5<rcon5<rcon5<downsampler<input_rgb_image_pyramid<pyramid_down<6>>>>>>>>;
 
 int main(int argc, char** argv)
 {
@@ -70,6 +50,12 @@ int main(int argc, char** argv)
         shape_predictor pose_model;
         deserialize("models/shape_predictor_68_face_landmarks.dat") >> pose_model;
 
+        // Load the neural network for face detection
+        net_type net;
+        deserialize("models/mmod_human_face_detector.dat") >> net;
+        // vector to store all face landmarks
+        std::vector<full_object_detection> shapes;
+
         // Grab and process frames until the main window is closed by the user.
         while(!win.is_closed())
         {
@@ -99,17 +85,33 @@ int main(int argc, char** argv)
                 dlib::assign_image(img, cv_img);
             }
 
-            // Detect faces
-            std::vector<rectangle> faces = detector(img);
-            // Find the pose of each face.
-            std::vector<full_object_detection> shapes;
-            for (unsigned long i = 0; i < faces.size(); ++i)
-                shapes.push_back(pose_model(img, faces[i]));
-
-            // Display it all on the screen
+            if (parser.option("fast"))
+            {
+                // Detect faces
+                std::vector<rectangle> faces = detector(img);
+                // Find the pose of each face.
+                for (unsigned long i = 0; i < faces.size(); ++i)
+                {
+                    shapes.push_back(pose_model(img, faces[i]));
+                }
+            }
+            else
+            {
+                // Detect faces using the neural network
+                /* while (img.size() < 1800 * 1800) { */
+                /*     pyramid_up(img); */
+                /* } */
+                auto dets = net(img);
+                for (unsigned long i = 0; i < dets.size(); i++)
+                {
+                    full_object_detection shape = pose_model(img, dets[i]);
+                    shapes.push_back(shape);
+                }
+            }
             win.clear_overlay();
             win.set_image(img);
             win.add_overlay(render_face_detections(shapes));
+            shapes.clear();
         }
     }
     catch(serialization_error& e)
