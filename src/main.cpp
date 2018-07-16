@@ -2,11 +2,14 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <dlib/cmd_line_parser.h>
+#include <dlib/dir_nav.h>
 #include <dlib/dnn.h>
+#include <dlib/image_io.h>
 #include <dlib/image_processing/frontal_face_detector.h>
 #include <dlib/image_processing/render_face_detections.h>
 #include <dlib/image_processing.h>
 #include <dlib/gui_widgets.h>
+#include <map>
 
 using namespace dlib;
 using namespace std;
@@ -52,9 +55,11 @@ using anet_type = loss_metric<fc_no_bias<128,avg_pool_everything<
 int main(int argc, char** argv)
 {
     dlib::command_line_parser parser;
+    parser.add_option("input", "Path to video file to process", 1);
     parser.add_option("mirror", "Mirror mode (left-right flip)");
     parser.add_option("light", "Use a lighter detection model");
     parser.add_option("threshold", "Face recognition threshold (default: 0.6)", 1);
+    parser.add_option("enroll-dir", "Path to the enrollment directory (default: enrollment)", 1);
     parser.add_option("h","Display this help message.");
     parser.parse(argc, argv);
 
@@ -65,18 +70,36 @@ int main(int argc, char** argv)
         return EXIT_SUCCESS;
     }
 
-    double threshold = get_option(parser, "threshold", 0.6);
-
     try
     {
-        cv::VideoCapture cap(0);
-        if (!cap.isOpened())
+        double threshold = get_option(parser, "threshold", 0.6);
+        string enroll_dir = get_option(parser, "enroll-dir", "enrollment");
+
+        string video_path;
+        cv::VideoCapture vid_src;
+        if(parser.option("input"))
+        {
+            video_path = parser.option("input").argument();
+            cv::VideoCapture file(video_path);
+            vid_src = file;
+        }
+        else
+        {
+            cv::VideoCapture cap(0);
+            vid_src = cap;
+        }
+
+        // open the webcam
+        if (!vid_src.isOpened())
         {
             cerr << "Unable to connect to camera" << endl;
             return 1;
         }
 
+        // create the display windows
         image_window win, det_win;
+        win.set_title("Webcam");
+        det_win.set_title("Face detections");
 
         // Load face detection and pose estimation models.
         frontal_face_detector detector = get_frontal_face_detector();
@@ -91,6 +114,64 @@ int main(int argc, char** argv)
         anet_type anet;
         deserialize("models/dlib_face_recognition_resnet_model_v1.dat") >> anet;
 
+        std::map<matrix<float, 0, 1>, string> enr_map;
+        // ----------------- ENROLLMENT -----------------
+        {
+            cout << "Scanning enrollment directory: " << enroll_dir << endl;
+            directory root(enroll_dir);
+            auto files = get_files_in_directory_tree(root, match_endings(".jpg .JPG .png .PNG"), 1);
+            std::vector<string> names;
+            std::vector<matrix<rgb_pixel>> enr_imgs;
+            std::vector<full_object_detection> enr_shapes;
+            for (auto f : files)
+            {
+                matrix<rgb_pixel> enr_img;
+                load_image(enr_img, f.full_name());
+                names.push_back(get_parent_directory(f).name());
+                enr_imgs.push_back(enr_img);
+            }
+
+            if (parser.option("light"))
+            {
+                for (auto enr_img : enr_imgs)
+                {
+                    auto dets = detector(enr_img);
+                    for (auto d : dets)
+                    {
+                        enr_shapes.push_back(pose_model(enr_img, d));
+                    }
+                }
+            }
+            else
+            {
+                for (auto enr_img : enr_imgs)
+                {
+                    auto dets = net(enr_img);
+                    for (auto d : dets)
+                    {
+                        enr_shapes.push_back(pose_model(enr_img, d));
+                    }
+                }
+            }
+            // Make sure we found as many faces as enrollment images
+            assert(names.size() == enr_shapes.size());
+            std::vector<matrix<rgb_pixel>> enr_faces;
+            for (size_t i = 0; i < enr_shapes.size(); i++)
+            {
+                matrix<rgb_pixel> face_chip;
+                extract_image_chip(enr_imgs[i], get_face_chip_details(enr_shapes[i], 150, 0.25), face_chip);
+                enr_faces.push_back(move(face_chip));
+            }
+            std::vector<matrix<float, 0, 1>> face_descriptors = anet(enr_faces);
+            cout << "Computed " << face_descriptors.size() << " face_descriptors" << endl;
+            assert(names.size() == face_descriptors.size());
+            for (size_t i = 0; i < names.size(); i++)
+            {
+                enr_map[face_descriptors[i]] = names[i];
+            }
+        }
+        // ----------------------------------------------
+
         // vector to store all face landmarks
         std::vector<full_object_detection> shapes;
         // vector to store all detected faces
@@ -101,7 +182,7 @@ int main(int argc, char** argv)
         {
             // Grab a frame
             cv::Mat cv_tmp;
-            if (!cap.read(cv_tmp))
+            if (!vid_src.read(cv_tmp))
             {
                 break;
             }
@@ -136,9 +217,9 @@ int main(int argc, char** argv)
             else
             {
                 // Detect faces using the neural network
-                /* while (img.size() < 1800 * 1800) { */
-                /*     pyramid_up(img); */
-                /* } */
+                while (img.size() < 1800 * 1800) {
+                    pyramid_up(img);
+                }
                 auto dets = net(img);
 
                 for (unsigned long i = 0; i < dets.size(); i++)
@@ -159,15 +240,17 @@ int main(int argc, char** argv)
 
             for (size_t i = 0; i < face_descriptors.size(); i++)
             {
-                for (size_t j = i + 1; j < face_descriptors.size(); j++)
+                for (auto const &entry : enr_map)
                 {
-                    if (length(face_descriptors[i]-face_descriptors[j]) < threshold)
+                    if (length(face_descriptors[i] - entry.first) < threshold)
                     {
                         cv::Mat cv_face = dlib::toMat(faces[i]);
-                        cv::putText(cv_face, "Adria", cv::Point(50, 125), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255, 102, 0), 1);
+                        cv::putText(cv_face, entry.second, cv::Point(50, 125), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255, 102, 0), 1);
+                        break;
                     }
                 }
             }
+
             det_win.set_image(tile_images(faces));
             win.clear_overlay();
             win.set_image(img);
