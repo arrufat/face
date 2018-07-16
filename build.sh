@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
 
+# Environment
+[ ! -z ${DLIB_USE_CUDA} ] || DLIB_USE_CUDA=ON
+
+function find_gcc() {
+  [ `which gcc-7 2>/dev/null` ] && echo "gcc-7" && exit
+  [ `which gcc-6 2>/dev/null` ] && echo "gcc-6" && exit
+  [ `which gcc-5 2>/dev/null` ] && echo "gcc-5" && exit
+  [ `which gcc 2>/dev/null` ] && echo "gcc" && exit
+}
+
 # check the models exist
 [ -d models ] || mkdir models
 # 68 point landmarks model
@@ -22,12 +32,13 @@ fi
 # start building
 [ -d build ] || mkdir build
 cd build
+CC=`find_gcc` \
 cmake .. -G Ninja \
   -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
   -DUSE_AVX_INSTRUCTIONS=ON \
   -DUSE_SSE2_INSTRUCTIONS=ON \
   -DUSE_SSE4_INSTRUCTIONS=ON \
-  -DDLIB_USE_CUDA=OFF
+  -DDLIB_USE_CUDA=${DLIB_USE_CUDA}
 
 cmake --build . --config Release
 cd -
