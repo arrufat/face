@@ -28,6 +28,14 @@ then
   bzip2 -d mmod_human_face_detector.dat.bz2
   cd -
 fi
+# face recognition model
+if [ ! -f models/dlib_face_recognition_resnet_model_v1.dat ]
+then
+  cd models
+  curl -O http://dlib.net/files/dlib_face_recognition_resnet_model_v1.dat.bz2
+  bzip2 -d dlib_face_recognition_resnet_model_v1.dat.bz2
+  cd -
+fi
 
 # start building
 [ -d build ] || mkdir build

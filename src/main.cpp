@@ -11,6 +11,7 @@
 using namespace dlib;
 using namespace std;
 
+// Neural network definition for face detection
 template <long num_filters, typename SUBNET> using con5d = con<num_filters,5,5,2,2,SUBNET>;
 template <long num_filters, typename SUBNET> using con5  = con<num_filters,5,5,1,1,SUBNET>;
 
@@ -19,11 +20,41 @@ template <typename SUBNET> using rcon5  = relu<affine<con5<45,SUBNET>>>;
 
 using net_type = loss_mmod<con<1,9,9,1,1,rcon5<rcon5<rcon5<downsampler<input_rgb_image_pyramid<pyramid_down<6>>>>>>>>;
 
+// Neural network definition for face recognition (ResNet50)
+template <template <int,template<typename>class,int,typename> class block, int N, template<typename>class BN, typename SUBNET>
+using residual = add_prev1<block<N,BN,1,tag1<SUBNET>>>;
+
+template <template <int,template<typename>class,int,typename> class block, int N, template<typename>class BN, typename SUBNET>
+using residual_down = add_prev2<avg_pool<2,2,2,2,skip1<tag2<block<N,BN,2,tag1<SUBNET>>>>>>;
+
+template <int N, template <typename> class BN, int stride, typename SUBNET>
+using block  = BN<con<N,3,3,1,1,relu<BN<con<N,3,3,stride,stride,SUBNET>>>>>;
+
+template <int N, typename SUBNET> using ares      = relu<residual<block,N,affine,SUBNET>>;
+template <int N, typename SUBNET> using ares_down = relu<residual_down<block,N,affine,SUBNET>>;
+
+template <typename SUBNET> using alevel0 = ares_down<256,SUBNET>;
+template <typename SUBNET> using alevel1 = ares<256,ares<256,ares_down<256,SUBNET>>>;
+template <typename SUBNET> using alevel2 = ares<128,ares<128,ares_down<128,SUBNET>>>;
+template <typename SUBNET> using alevel3 = ares<64,ares<64,ares<64,ares_down<64,SUBNET>>>>;
+template <typename SUBNET> using alevel4 = ares<32,ares<32,ares<32,SUBNET>>>;
+
+using anet_type = loss_metric<fc_no_bias<128,avg_pool_everything<
+                            alevel0<
+                            alevel1<
+                            alevel2<
+                            alevel3<
+                            alevel4<
+                            max_pool<3,3,2,2,relu<affine<con<32,7,7,2,2,
+                            input_rgb_image_sized<150>
+                            >>>>>>>>>>>>;
+
 int main(int argc, char** argv)
 {
     dlib::command_line_parser parser;
     parser.add_option("mirror", "Mirror mode (left-right flip)");
-    parser.add_option("fast", "Use a faster, less accurate model");
+    parser.add_option("light", "Use a lighter detection model");
+    parser.add_option("threshold", "Face recognition threshold (default: 0.6)", 1);
     parser.add_option("h","Display this help message.");
     parser.parse(argc, argv);
 
@@ -34,6 +65,8 @@ int main(int argc, char** argv)
         return EXIT_SUCCESS;
     }
 
+    double threshold = get_option(parser, "threshold", 0.6);
+
     try
     {
         cv::VideoCapture cap(0);
@@ -43,7 +76,7 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        image_window win;
+        image_window win, det_win;
 
         // Load face detection and pose estimation models.
         frontal_face_detector detector = get_frontal_face_detector();
@@ -53,27 +86,31 @@ int main(int argc, char** argv)
         // Load the neural network for face detection
         net_type net;
         deserialize("models/mmod_human_face_detector.dat") >> net;
+
+        // Load the neural network for face recognition
+        anet_type anet;
+        deserialize("models/dlib_face_recognition_resnet_model_v1.dat") >> anet;
+
         // vector to store all face landmarks
         std::vector<full_object_detection> shapes;
+        // vector to store all detected faces
+        std::vector<matrix<rgb_pixel>> faces;
 
         // Grab and process frames until the main window is closed by the user.
         while(!win.is_closed())
         {
             // Grab a frame
-            cv::Mat temp;
-            if (!cap.read(temp))
+            cv::Mat cv_tmp;
+            if (!cap.read(cv_tmp))
             {
                 break;
             }
-            // Turn OpenCV's Mat into something dlib can deal with.  Note that this just
-            // wraps the Mat object, it doesn't copy anything.  So cimg is only valid as
-            // long as temp is valid.  Also don't do anything to temp that would cause it
-            // to reallocate the memory which stores the image as that will make cimg
-            // contain dangling pointers.  This basically means you shouldn't modify temp
-            // while using cimg.
-            cv::Mat tmp_rgb;
-            cv::cvtColor(temp, tmp_rgb, cv::COLOR_BGR2RGB);
-            cv_image<rgb_pixel> cv_img(tmp_rgb);
+            // Convert the OpenCV BRG image into a Dlib RGB image
+            cv::Mat cv_tmp_rgb;
+            cv::cvtColor(cv_tmp, cv_tmp_rgb, cv::COLOR_BGR2RGB);
+            cv_image<rgb_pixel> cv_img(cv_tmp_rgb);
+
+            // Handle the mirroring
             dlib::matrix<rgb_pixel> mir_img, img;
             if (parser.option("mirror"))
             {
@@ -85,7 +122,8 @@ int main(int argc, char** argv)
                 dlib::assign_image(img, cv_img);
             }
 
-            if (parser.option("fast"))
+            // Select the light or the neural network approach
+            if (parser.option("light"))
             {
                 // Detect faces
                 std::vector<rectangle> faces = detector(img);
@@ -102,16 +140,40 @@ int main(int argc, char** argv)
                 /*     pyramid_up(img); */
                 /* } */
                 auto dets = net(img);
+
                 for (unsigned long i = 0; i < dets.size(); i++)
                 {
                     full_object_detection shape = pose_model(img, dets[i]);
                     shapes.push_back(shape);
                 }
             }
+
+            for (auto shape : shapes)
+            {
+                matrix<rgb_pixel> face_chip;
+                extract_image_chip(img, get_face_chip_details(shape, 150, 0.25), face_chip);
+                faces.push_back(move(face_chip));
+            }
+
+            std::vector<matrix<float, 0, 1>> face_descriptors = anet(faces);
+
+            for (size_t i = 0; i < face_descriptors.size(); i++)
+            {
+                for (size_t j = i + 1; j < face_descriptors.size(); j++)
+                {
+                    if (length(face_descriptors[i]-face_descriptors[j]) < threshold)
+                    {
+                        cv::Mat cv_face = dlib::toMat(faces[i]);
+                        cv::putText(cv_face, "Adria", cv::Point(50, 125), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255, 102, 0), 1);
+                    }
+                }
+            }
+            det_win.set_image(tile_images(faces));
             win.clear_overlay();
             win.set_image(img);
             win.add_overlay(render_face_detections(shapes));
             shapes.clear();
+            faces.clear();
         }
     }
     catch(serialization_error& e)
