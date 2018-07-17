@@ -1,6 +1,7 @@
 #include <dlib/opencv.h>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
+#include <dlib/assert.h>
 #include <dlib/cmd_line_parser.h>
 #include <dlib/dir_nav.h>
 #include <dlib/dnn.h>
@@ -114,10 +115,11 @@ int main(int argc, char** argv)
         anet_type anet;
         deserialize("models/dlib_face_recognition_resnet_model_v1.dat") >> anet;
 
+        // A mapping between face_descriptors and indentities
         std::map<matrix<float, 0, 1>, string> enr_map;
         // ----------------- ENROLLMENT -----------------
         {
-            cout << "Scanning enrollment directory: " << enroll_dir << endl;
+            cout << "Scanning '" << enroll_dir << "' directory and generating face descriptors." << endl;
             directory root(enroll_dir);
             auto files = get_files_in_directory_tree(root, match_endings(".jpg .JPG .png .PNG"), 1);
             std::vector<string> names;
@@ -154,7 +156,7 @@ int main(int argc, char** argv)
                 }
             }
             // Make sure we found as many faces as enrollment images
-            assert(names.size() == enr_shapes.size());
+            DLIB_CASSERT(names.size() == enr_shapes.size());
             std::vector<matrix<rgb_pixel>> enr_faces;
             for (size_t i = 0; i < enr_shapes.size(); i++)
             {
@@ -164,7 +166,7 @@ int main(int argc, char** argv)
             }
             std::vector<matrix<float, 0, 1>> face_descriptors = anet(enr_faces);
             cout << "Computed " << face_descriptors.size() << " face_descriptors" << endl;
-            assert(names.size() == face_descriptors.size());
+            DLIB_CASSERT(names.size() == face_descriptors.size());
             for (size_t i = 0; i < names.size(); i++)
             {
                 enr_map[face_descriptors[i]] = names[i];
