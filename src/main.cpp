@@ -1,6 +1,7 @@
 #include <dlib/opencv.h>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
+#include <chrono>
 #include <dlib/assert.h>
 #include <dlib/cmd_line_parser.h>
 #include <dlib/dir_nav.h>
@@ -14,6 +15,7 @@
 
 using namespace dlib;
 using namespace std;
+typedef std::chrono::high_resolution_clock Clock;
 
 // Neural network definition for face detection
 template <long num_filters, typename SUBNET> using con5d = con<num_filters,5,5,2,2,SUBNET>;
@@ -121,6 +123,7 @@ int main(int argc, char** argv)
         std::map<matrix<float, 0, 1>, string> enr_map;
         // ----------------- ENROLLMENT -----------------
         {
+            auto t1 = Clock::now();
             cout << "Scanning '" << enroll_dir << "' directory and generating face descriptors." << endl;
             directory root(enroll_dir);
             auto files = get_files_in_directory_tree(root, match_endings(".jpg .JPG .png .PNG"), 1);
@@ -167,23 +170,21 @@ int main(int argc, char** argv)
                 enr_faces.push_back(move(face_chip));
             }
             std::vector<matrix<float, 0, 1>> face_descriptors = anet(enr_faces);
-            cout << "Computed " << face_descriptors.size() << " face_descriptors" << endl;
             DLIB_CASSERT(names.size() == face_descriptors.size());
             for (size_t i = 0; i < names.size(); i++)
             {
                 enr_map[face_descriptors[i]] = names[i];
             }
+            auto t2 = Clock::now();
+            cout << "Computed " << face_descriptors.size() << " face descriptors in ";
+            cout << chrono::duration_cast<chrono::nanoseconds>(t2 - t1).count() * 1e-9 << " seconds" << endl;
         }
         // ----------------------------------------------
-
-        // vector to store all face landmarks
-        std::vector<full_object_detection> shapes;
-        // vector to store all detected faces
-        std::vector<matrix<rgb_pixel>> faces;
 
         // Grab and process frames until the main window is closed by the user.
         while(!win.is_closed())
         {
+            auto t1 = Clock::now();
             // Grab a frame
             cv::Mat cv_tmp;
             if (!vid_src.read(cv_tmp))
@@ -207,32 +208,37 @@ int main(int argc, char** argv)
                 dlib::assign_image(img, cv_img);
             }
 
-            // Select the light or the neural network approach
-            if (parser.option("light"))
-            {
-                // Detect faces
-                std::vector<rectangle> faces = detector(img);
-                // Find the pose of each face.
-                for (unsigned long i = 0; i < faces.size(); ++i)
-                {
-                    shapes.push_back(pose_model(img, faces[i]));
-                }
-            }
-            else
-            {
-                // Detect faces using the neural network
-                int cur_pyr_lvl = 1;
-                while (cur_pyr_lvl < pyramid_levels)
-                {
-                    pyramid_up(img);
-                    cur_pyr_lvl++;
-                }
-                auto dets = net(img);
+            // vector to store all face landmarks
+            std::vector<full_object_detection> shapes;
+            // vector to store all detected faces
+            std::vector<matrix<rgb_pixel>> faces;
 
-                for (unsigned long i = 0; i < dets.size(); i++)
+            // Face detection and position estimation
+            {
+                if (parser.option("light"))
                 {
-                    full_object_detection shape = pose_model(img, dets[i]);
-                    shapes.push_back(shape);
+                    std::vector<rectangle> dets = detector(img);
+                    for (unsigned long i = 0; i < dets.size(); ++i)
+                    {
+                        shapes.push_back(pose_model(img, dets[i]));
+                    }
+                }
+                else
+                {
+                    // Detect faces using the neural network
+                    int cur_pyr_lvl = 1;
+                    while (cur_pyr_lvl < pyramid_levels)
+                    {
+                        pyramid_up(img);
+                        cur_pyr_lvl++;
+                    }
+                    auto dets = net(img);
+
+                    for (unsigned long i = 0; i < dets.size(); i++)
+                    {
+                        full_object_detection shape = pose_model(img, dets[i]);
+                        shapes.push_back(shape);
+                    }
                 }
             }
 
@@ -262,8 +268,9 @@ int main(int argc, char** argv)
             win.clear_overlay();
             win.set_image(img);
             win.add_overlay(render_face_detections(shapes));
-            shapes.clear();
-            faces.clear();
+            auto t2 = Clock::now();
+            cout << "Detected faces: " << shapes.size() << "\tTime to process frame: ";
+            cout << chrono::duration_cast<chrono::nanoseconds>(t2 - t1).count() * 1e-9 << " seconds\r" << flush;
         }
     }
     catch(serialization_error& e)
