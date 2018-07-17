@@ -55,6 +55,56 @@ using anet_type = loss_metric<fc_no_bias<128,avg_pool_everything<
                             input_rgb_image_sized<150>
                             >>>>>>>>>>>>;
 
+class FaceDetector
+{
+    public:
+        FaceDetector()
+        {
+            this->light_detector = get_frontal_face_detector();
+            deserialize("models/shape_predictor_68_face_landmarks.dat") >> pose_model;
+            this->detector = &FaceDetector::light_detect;
+        }
+        FaceDetector(const string net_path)
+        {
+            deserialize(net_path) >> this->dnn_detector;
+            deserialize("models/shape_predictor_68_face_landmarks.dat") >> pose_model;
+            this->detector = &FaceDetector::dnn_detect;
+        }
+        std::vector<full_object_detection> detect(matrix<rgb_pixel> img)
+        {
+            return (this->*detector)(img);
+        }
+        void clear()
+        {
+            this->shapes.clear();
+        }
+    private:
+        typedef std::vector<full_object_detection> (FaceDetector::*DetectorPtr) (matrix<rgb_pixel>);
+        DetectorPtr detector;
+        shape_predictor pose_model;
+        std::vector<full_object_detection> shapes;
+        net_type dnn_detector;
+        frontal_face_detector light_detector ;
+        std::vector<full_object_detection> light_detect(matrix<rgb_pixel> img)
+        {
+            auto dets = this->light_detector(img);
+            for (auto det : dets)
+            {
+                this->shapes.push_back(this->pose_model(img, det));
+            }
+            return this->shapes;
+        }
+        std::vector<full_object_detection> dnn_detect(matrix<rgb_pixel> img)
+        {
+            auto dets = this->dnn_detector(img);
+            for (auto det : dets)
+            {
+                this->shapes.push_back(this->pose_model(img, det));
+            }
+            return this->shapes;
+        }
+};
+
 int main(int argc, char** argv)
 {
     dlib::command_line_parser parser;
@@ -101,11 +151,6 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        // create the display windows
-        image_window win, det_win;
-        win.set_title("Webcam");
-        det_win.set_title("Face detections");
-
         // Load face detection and pose estimation models.
         frontal_face_detector detector = get_frontal_face_detector();
         shape_predictor pose_model;
@@ -118,6 +163,13 @@ int main(int argc, char** argv)
         // Load the neural network for face recognition
         anet_type anet;
         deserialize("models/dlib_face_recognition_resnet_model_v1.dat") >> anet;
+
+        // Initialize the face detector
+        FaceDetector face_detector;
+        if (!parser.option("light"))
+        {
+            face_detector = FaceDetector("models/mmod_human_face_detector.dat");
+        }
 
         // A mapping between face_descriptors and indentities
         std::map<matrix<float, 0, 1>, string> enr_map;
@@ -137,28 +189,15 @@ int main(int argc, char** argv)
                 names.push_back(get_parent_directory(f).name());
                 enr_imgs.push_back(enr_img);
             }
-
-            if (parser.option("light"))
+            // Detect faces on enrollment images
+            for (auto enr_img : enr_imgs)
             {
-                for (auto enr_img : enr_imgs)
+                auto shapes = face_detector.detect(enr_img);
+                for (auto s : shapes)
                 {
-                    auto dets = detector(enr_img);
-                    for (auto d : dets)
-                    {
-                        enr_shapes.push_back(pose_model(enr_img, d));
-                    }
+                    enr_shapes.push_back(s);
                 }
-            }
-            else
-            {
-                for (auto enr_img : enr_imgs)
-                {
-                    auto dets = net(enr_img);
-                    for (auto d : dets)
-                    {
-                        enr_shapes.push_back(pose_model(enr_img, d));
-                    }
-                }
+                face_detector.clear();
             }
             // Make sure we found as many faces as enrollment images
             DLIB_CASSERT(names.size() == enr_shapes.size());
@@ -180,6 +219,11 @@ int main(int argc, char** argv)
             cout << chrono::duration_cast<chrono::nanoseconds>(t2 - t1).count() * 1e-9 << " seconds" << endl;
         }
         // ----------------------------------------------
+
+        // create the display windows
+        image_window win, det_win;
+        win.set_title("Webcam");
+        det_win.set_title("Face detections");
 
         // Grab and process frames until the main window is closed by the user.
         while(!win.is_closed())
@@ -213,34 +257,13 @@ int main(int argc, char** argv)
             // vector to store all detected faces
             std::vector<matrix<rgb_pixel>> faces;
 
-            // Face detection and position estimation
+            int cur_pyr_lvl = 1;
+            while (cur_pyr_lvl < pyramid_levels)
             {
-                if (parser.option("light"))
-                {
-                    std::vector<rectangle> dets = detector(img);
-                    for (unsigned long i = 0; i < dets.size(); ++i)
-                    {
-                        shapes.push_back(pose_model(img, dets[i]));
-                    }
-                }
-                else
-                {
-                    // Detect faces using the neural network
-                    int cur_pyr_lvl = 1;
-                    while (cur_pyr_lvl < pyramid_levels)
-                    {
-                        pyramid_up(img);
-                        cur_pyr_lvl++;
-                    }
-                    auto dets = net(img);
-
-                    for (unsigned long i = 0; i < dets.size(); i++)
-                    {
-                        full_object_detection shape = pose_model(img, dets[i]);
-                        shapes.push_back(shape);
-                    }
-                }
+                pyramid_up(img);
+                cur_pyr_lvl++;
             }
+            shapes = face_detector.detect(img);
 
             for (auto shape : shapes)
             {
@@ -258,7 +281,7 @@ int main(int argc, char** argv)
                     if (length(face_descriptors[i] - entry.first) < threshold)
                     {
                         cv::Mat cv_face = dlib::toMat(faces[i]);
-                        cv::putText(cv_face, entry.second, cv::Point(50, 140), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255, 102, 0), 1);
+                        cv::putText(cv_face, entry.second, cv::Point(10, 140), cv::FONT_HERSHEY_DUPLEX, 0.7, cv::Scalar(255, 102, 0), 1);
                         break;
                     }
                 }
@@ -268,6 +291,7 @@ int main(int argc, char** argv)
             win.clear_overlay();
             win.set_image(img);
             win.add_overlay(render_face_detections(shapes));
+            face_detector.clear();
             auto t2 = Clock::now();
             cout << "Detected faces: " << shapes.size() << "\tTime to process frame: ";
             cout << chrono::duration_cast<chrono::nanoseconds>(t2 - t1).count() * 1e-9 << " seconds\r" << flush;
