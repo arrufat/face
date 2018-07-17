@@ -61,6 +61,7 @@ int main(int argc, char** argv)
     parser.add_option("light", "Use a lighter detection model");
     parser.add_option("threshold", "Face recognition threshold (default: 0.6)", 1);
     parser.add_option("enroll-dir", "Path to the enrollment directory (default: enrollment)", 1);
+    parser.add_option("pyramid-levels", "Times to upscale image (default: 1)", 1);
     parser.add_option("h","Display this help message.");
     parser.parse(argc, argv);
 
@@ -75,6 +76,7 @@ int main(int argc, char** argv)
     {
         double threshold = get_option(parser, "threshold", 0.6);
         string enroll_dir = get_option(parser, "enroll-dir", "enrollment");
+        int pyramid_levels = get_option(parser, "pyramid-levels", 1);
 
         string video_path;
         cv::VideoCapture vid_src;
@@ -219,8 +221,11 @@ int main(int argc, char** argv)
             else
             {
                 // Detect faces using the neural network
-                while (img.size() < 1800 * 1800) {
+                int cur_pyr_lvl = 1;
+                while (cur_pyr_lvl < pyramid_levels)
+                {
                     pyramid_up(img);
+                    cur_pyr_lvl++;
                 }
                 auto dets = net(img);
 
@@ -247,7 +252,7 @@ int main(int argc, char** argv)
                     if (length(face_descriptors[i] - entry.first) < threshold)
                     {
                         cv::Mat cv_face = dlib::toMat(faces[i]);
-                        cv::putText(cv_face, entry.second, cv::Point(50, 125), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255, 102, 0), 1);
+                        cv::putText(cv_face, entry.second, cv::Point(50, 140), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.8, cv::Scalar(255, 102, 0), 1);
                         break;
                     }
                 }
