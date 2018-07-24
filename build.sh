@@ -12,6 +12,14 @@ function find_gcc() {
 
 # check the models exist
 [ -d models ] || mkdir models
+# 5 point landmarks model
+if [ ! -f models/shape_predictor_5_face_landmarks.dat ]
+then
+  cd models
+  curl -O http://dlib.net/files/shape_predictor_5_face_landmarks.dat.bz2
+  bzip2 -d shape_predictor_5_face_landmarks.dat.bz2
+  cd -
+fi
 # 68 point landmarks model
 if [ ! -f models/shape_predictor_68_face_landmarks.dat ]
 then
