@@ -61,48 +61,53 @@ class FaceDetector
         FaceDetector()
         {
             this->light_detector = get_frontal_face_detector();
-            deserialize("models/shape_predictor_68_face_landmarks.dat") >> pose_model;
             this->detector = &FaceDetector::light_detect;
         }
         FaceDetector(const string net_path)
         {
             deserialize(net_path) >> this->dnn_detector;
-            deserialize("models/shape_predictor_68_face_landmarks.dat") >> pose_model;
             this->detector = &FaceDetector::dnn_detect;
         }
-        std::vector<full_object_detection> detect(matrix<rgb_pixel> img)
+        ~FaceDetector() {}
+
+        std::vector<rectangle> detect(matrix<rgb_pixel> img)
         {
             return (this->*detector)(img);
         }
-        void clear()
-        {
-            this->shapes.clear();
-        }
     private:
-        typedef std::vector<full_object_detection> (FaceDetector::*DetectorPtr) (matrix<rgb_pixel>);
+        typedef std::vector<rectangle> (FaceDetector::*DetectorPtr) (matrix<rgb_pixel>);
         DetectorPtr detector;
-        shape_predictor pose_model;
-        std::vector<full_object_detection> shapes;
         net_type dnn_detector;
         frontal_face_detector light_detector ;
-        std::vector<full_object_detection> light_detect(matrix<rgb_pixel> img)
+        std::vector<rectangle> light_detect(matrix<rgb_pixel> img)
         {
-            auto dets = this->light_detector(img);
-            for (auto det : dets)
-            {
-                this->shapes.push_back(this->pose_model(img, det));
-            }
-            return this->shapes;
+            return this->light_detector(img);
         }
-        std::vector<full_object_detection> dnn_detect(matrix<rgb_pixel> img)
+        std::vector<rectangle> dnn_detect(matrix<rgb_pixel> img)
         {
-            auto dets = this->dnn_detector(img);
-            for (auto det : dets)
+            std::vector<rectangle> dets;
+            auto mmod_rects = this->dnn_detector(img);
+            for (auto r : mmod_rects)
             {
-                this->shapes.push_back(this->pose_model(img, det));
+                dets.push_back(r);
             }
-            return this->shapes;
+            return dets;
         }
+};
+
+class FaceAligner
+{
+    public:
+        FaceAligner(const string model_path)
+        {
+            deserialize(model_path) >> this->pose_model;
+        };
+        full_object_detection align(matrix<rgb_pixel> img, rectangle det)
+        {
+            return this->pose_model(img, det);
+        }
+    private:
+        dlib::shape_predictor pose_model;
 };
 
 int main(int argc, char** argv)
@@ -151,25 +156,19 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        // Load face detection and pose estimation models.
-        frontal_face_detector detector = get_frontal_face_detector();
-        shape_predictor pose_model;
-        deserialize("models/shape_predictor_68_face_landmarks.dat") >> pose_model;
-
-        // Load the neural network for face detection
-        net_type net;
-        deserialize("models/mmod_human_face_detector.dat") >> net;
-
-        // Load the neural network for face recognition
-        anet_type anet;
-        deserialize("models/dlib_face_recognition_resnet_model_v1.dat") >> anet;
-
         // Initialize the face detector
         FaceDetector face_detector;
         if (!parser.option("light"))
         {
             face_detector = FaceDetector("models/mmod_human_face_detector.dat");
         }
+
+        // Initialize the face aligner
+        FaceAligner face_aligner("models/shape_predictor_68_face_landmarks.dat");
+
+        // Load the neural network for face recognition
+        anet_type anet;
+        deserialize("models/dlib_face_recognition_resnet_model_v1.dat") >> anet;
 
         // A mapping between face_descriptors and indentities
         std::map<matrix<float, 0, 1>, string> enr_map;
@@ -192,12 +191,12 @@ int main(int argc, char** argv)
             // Detect faces on enrollment images
             for (auto enr_img : enr_imgs)
             {
-                auto shapes = face_detector.detect(enr_img);
-                for (auto s : shapes)
+                auto dets = face_detector.detect(enr_img);
+                // Align and store detected faces
+                for (auto det : dets)
                 {
-                    enr_shapes.push_back(s);
+                    enr_shapes.push_back(face_aligner.align(enr_img, det));
                 }
-                face_detector.clear();
             }
             // Make sure we found as many faces as enrollment images
             DLIB_CASSERT(names.size() == enr_shapes.size());
@@ -254,7 +253,7 @@ int main(int argc, char** argv)
 
             // vector to store all face landmarks
             std::vector<full_object_detection> shapes;
-            // vector to store all detected faces
+            // vector to store all aligned faces
             std::vector<matrix<rgb_pixel>> faces;
 
             int cur_pyr_lvl = 1;
@@ -263,8 +262,16 @@ int main(int argc, char** argv)
                 pyramid_up(img);
                 cur_pyr_lvl++;
             }
-            shapes = face_detector.detect(img);
 
+            // detect faces in current frame
+            auto dets = face_detector.detect(img);
+            // store alignment information for each face
+            for (auto det : dets)
+            {
+                shapes.push_back(face_aligner.align(img, det));
+            }
+
+            // align detected faces
             for (auto shape : shapes)
             {
                 matrix<rgb_pixel> face_chip;
@@ -291,7 +298,6 @@ int main(int argc, char** argv)
             win.clear_overlay();
             win.set_image(img);
             win.add_overlay(render_face_detections(shapes));
-            face_detector.clear();
             auto t2 = Clock::now();
             cout << "Detected faces: " << shapes.size() << "\tTime to process frame: ";
             cout << chrono::duration_cast<chrono::nanoseconds>(t2 - t1).count() * 1e-9 << " seconds\r" << flush;
