@@ -119,10 +119,10 @@ int main(int argc, char** argv)
     parser.add_option("threshold", "Face recognition threshold (default: 0.6)", 1);
     parser.add_option("enroll-dir", "Path to the enrollment directory (default: enrollment)", 1);
     parser.add_option("pyramid-levels", "Times to upscale image (default: 1)", 1);
-    parser.add_option("h","Display this help message.");
+    parser.add_option("help","Display this help message.");
     parser.parse(argc, argv);
 
-    if (parser.option("h"))
+    if (parser.option("help"))
     {
         cout << "Usage: " << argv[0] << " [options] <list.txt>\n";
         parser.print_options();
