@@ -117,8 +117,9 @@ int main(int argc, char** argv)
     parser.add_option("mirror", "Mirror mode (left-right flip)");
     parser.add_option("light", "Use a lighter detection model");
     parser.add_option("threshold", "Face recognition threshold (default: 0.6)", 1);
-    parser.add_option("enroll-dir", "Path to the enrollment directory (default: enrollment)", 1);
-    parser.add_option("pyramid-levels", "Times to upscale image (default: 1)", 1);
+    parser.add_option("enroll-dir", "Enrollment directory (default: enrollment)", 1);
+    parser.add_option("pyramid-levels", "Pyramid levels for the face detector (default: 1)", 1);
+    parser.add_option("scale-factor", "Scaling factor for the input image (default: 1.0)", 1);
     parser.add_option("help","Display this help message.");
     parser.parse(argc, argv);
 
@@ -134,6 +135,7 @@ int main(int argc, char** argv)
         double threshold = get_option(parser, "threshold", 0.6);
         string enroll_dir = get_option(parser, "enroll-dir", "enrollment");
         int pyramid_levels = get_option(parser, "pyramid-levels", 1);
+        double scale_factor = get_option(parser, "scale-factor", 1.0);
 
         string video_path;
         cv::VideoCapture vid_src;
@@ -249,6 +251,12 @@ int main(int argc, char** argv)
             else
             {
                 dlib::assign_image(img, cv_img);
+            }
+
+            // Handle scaling
+            if (scale_factor != 1.0)
+            {
+                dlib::resize_image(scale_factor, img);
             }
 
             // vector to store all face landmarks
