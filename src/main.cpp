@@ -87,7 +87,7 @@ class FaceDetector
         {
             std::vector<rectangle> dets;
             auto mmod_rects = this->dnn_detector(img);
-            for (auto r : mmod_rects)
+            for (auto &r : mmod_rects)
             {
                 dets.push_back(r);
             }
@@ -148,6 +148,7 @@ int main(int argc, char** argv)
         else
         {
             cv::VideoCapture cap(0);
+            cap.set(cv::CAP_PROP_FPS, 24);
             vid_src = cap;
         }
 
@@ -183,7 +184,7 @@ int main(int argc, char** argv)
             std::vector<string> names;
             std::vector<matrix<rgb_pixel>> enr_imgs;
             std::vector<full_object_detection> enr_shapes;
-            for (auto f : files)
+            for (auto &f : files)
             {
                 matrix<rgb_pixel> enr_img;
                 load_image(enr_img, f.full_name());
@@ -191,11 +192,11 @@ int main(int argc, char** argv)
                 enr_imgs.push_back(enr_img);
             }
             // Detect faces on enrollment images
-            for (auto enr_img : enr_imgs)
+            for (auto &enr_img : enr_imgs)
             {
                 auto dets = face_detector.detect(enr_img);
                 // Align and store detected faces
-                for (auto det : dets)
+                for (auto &det : dets)
                 {
                     enr_shapes.push_back(face_aligner.align(enr_img, det));
                 }
@@ -274,13 +275,13 @@ int main(int argc, char** argv)
             // detect faces in current frame
             auto dets = face_detector.detect(img);
             // store alignment information for each face
-            for (auto det : dets)
+            for (auto &det : dets)
             {
                 shapes.push_back(face_aligner.align(img, det));
             }
 
             // align detected faces
-            for (auto shape : shapes)
+            for (auto &shape : shapes)
             {
                 matrix<rgb_pixel> face_chip;
                 extract_image_chip(img, get_face_chip_details(shape, 150, 0.25), face_chip);
