@@ -113,13 +113,14 @@ class FaceAligner
 int main(int argc, char** argv)
 {
     dlib::command_line_parser parser;
-    parser.add_option("input", "Path to video file to process", 1);
+    parser.add_option("input", "Path to video file to process (defaults to webcam)", 1);
     parser.add_option("mirror", "Mirror mode (left-right flip)");
     parser.add_option("light", "Use a lighter detection model");
-    parser.add_option("threshold", "Face recognition threshold (default: 0.6)", 1);
+    parser.add_option("threshold", "Face recognition threshold (default: 0.5)", 1);
     parser.add_option("enroll-dir", "Enrollment directory (default: enrollment)", 1);
     parser.add_option("pyramid-levels", "Pyramid levels for the face detector (default: 1)", 1);
     parser.add_option("scale-factor", "Scaling factor for the input image (default: 1.0)", 1);
+    parser.add_option("fps", "Force the frames per second for the webcam", 1);
     parser.add_option("help","Display this help message.");
     parser.parse(argc, argv);
 
@@ -132,7 +133,7 @@ int main(int argc, char** argv)
 
     try
     {
-        double threshold = get_option(parser, "threshold", 0.6);
+        double threshold = get_option(parser, "threshold", 0.5);
         string enroll_dir = get_option(parser, "enroll-dir", "enrollment");
         int pyramid_levels = get_option(parser, "pyramid-levels", 1);
         double scale_factor = get_option(parser, "scale-factor", 1.0);
@@ -148,7 +149,10 @@ int main(int argc, char** argv)
         else
         {
             cv::VideoCapture cap(0);
-            cap.set(cv::CAP_PROP_FPS, 24);
+            if (parser.option("fps")) {
+                int fps = atoi(parser.option("fps").argument().c_str());
+                cap.set(cv::CAP_PROP_FPS, fps);
+            }
             vid_src = cap;
         }
 
