@@ -10,6 +10,13 @@ function find_gcc() {
   [ `which gcc 2>/dev/null` ] && echo "gcc" && exit
 }
 
+# setup the git submodules for the first time
+if [ ! -f submodule/dlib/CMakeLists.txt ]
+then
+  git submodule init
+  git submodule update
+fi
+
 # check the models exist
 [ -d models ] || mkdir models
 # 5 point landmarks model
