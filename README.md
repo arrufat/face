@@ -9,14 +9,14 @@ The main purpose of this repository is to provide an end to end solution for fac
 ### Dependencies
 
 The only external dependency of this project is OpenCV >= 3, used only for camera acquistion (or video input).
-However, having CUDA and CUDNN will make it running the deep learning models for detection more usable.
-Dlib is included as a submodule, so once OpenCV has been installed, the following command should do all the work for you:
+However, having CUDA and CUDNN will make running the deep learning models for detection more usable.
+Dlib will be fetched directly by CMake, so once OpenCV has been installed, the following command should do all the work for you:
  
  ``` bash
  ./build.sh
  ```
  
- Which will download the needed pretrained models, initialize the git submodules and build the project.
+ Which will download the needed pretrained models and build the project.
  The resulting binary will be found inside of the a newly created directory, named `build`.
  
  ## Running
