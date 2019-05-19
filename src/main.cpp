@@ -15,32 +15,30 @@
 #include <dlib/gui_widgets.h>
 #include <map>
 
-using namespace dlib;
-using namespace std;
 namespace chrono = std::chrono;
 using fseconds = chrono::duration<float>;
 
 // Neural network definition for face detection
-template <long num_filters, typename SUBNET> using con5d = con<num_filters,5,5,2,2,SUBNET>;
-template <long num_filters, typename SUBNET> using con5  = con<num_filters,5,5,1,1,SUBNET>;
+template <long num_filters, typename SUBNET> using con5d = dlib::con<num_filters,5,5,2,2,SUBNET>;
+template <long num_filters, typename SUBNET> using con5  = dlib::con<num_filters,5,5,1,1,SUBNET>;
 
-template <typename SUBNET> using downsampler  = relu<affine<con5d<32, relu<affine<con5d<32, relu<affine<con5d<16,SUBNET>>>>>>>>>;
-template <typename SUBNET> using rcon5  = relu<affine<con5<45,SUBNET>>>;
+template <typename SUBNET> using downsampler  = dlib::relu<dlib::affine<con5d<32, dlib::relu<dlib::affine<con5d<32, dlib::relu<dlib::affine<con5d<16,SUBNET>>>>>>>>>;
+template <typename SUBNET> using rcon5  = dlib::relu<dlib::affine<con5<45,SUBNET>>>;
 
-using net_type = loss_mmod<con<1,9,9,1,1,rcon5<rcon5<rcon5<downsampler<input_rgb_image_pyramid<pyramid_down<6>>>>>>>>;
+using net_type = dlib::loss_mmod<dlib::con<1,9,9,1,1,rcon5<rcon5<rcon5<downsampler<dlib::input_rgb_image_pyramid<dlib::pyramid_down<6>>>>>>>>;
 
 // Neural network definition for face recognition (ResNet50)
 template <template <int,template<typename>class,int,typename> class block, int N, template<typename>class BN, typename SUBNET>
-using residual = add_prev1<block<N,BN,1,tag1<SUBNET>>>;
+using residual = dlib::add_prev1<block<N,BN,1,dlib::tag1<SUBNET>>>;
 
 template <template <int,template<typename>class,int,typename> class block, int N, template<typename>class BN, typename SUBNET>
-using residual_down = add_prev2<avg_pool<2,2,2,2,skip1<tag2<block<N,BN,2,tag1<SUBNET>>>>>>;
+using residual_down = dlib::add_prev2<dlib::avg_pool<2,2,2,2,dlib::skip1<dlib::tag2<block<N,BN,2,dlib::tag1<SUBNET>>>>>>;
 
 template <int N, template <typename> class BN, int stride, typename SUBNET>
-using block  = BN<con<N,3,3,1,1,relu<BN<con<N,3,3,stride,stride,SUBNET>>>>>;
+using block  = BN<dlib::con<N,3,3,1,1,dlib::relu<BN<dlib::con<N,3,3,stride,stride,SUBNET>>>>>;
 
-template <int N, typename SUBNET> using ares      = relu<residual<block,N,affine,SUBNET>>;
-template <int N, typename SUBNET> using ares_down = relu<residual_down<block,N,affine,SUBNET>>;
+template <int N, typename SUBNET> using ares      = dlib::relu<residual<block,N,dlib::affine,SUBNET>>;
+template <int N, typename SUBNET> using ares_down = dlib::relu<residual_down<block,N,dlib::affine,SUBNET>>;
 
 template <typename SUBNET> using alevel0 = ares_down<256,SUBNET>;
 template <typename SUBNET> using alevel1 = ares<256,ares<256,ares_down<256,SUBNET>>>;
@@ -48,14 +46,14 @@ template <typename SUBNET> using alevel2 = ares<128,ares<128,ares_down<128,SUBNE
 template <typename SUBNET> using alevel3 = ares<64,ares<64,ares<64,ares_down<64,SUBNET>>>>;
 template <typename SUBNET> using alevel4 = ares<32,ares<32,ares<32,SUBNET>>>;
 
-using anet_type = loss_metric<fc_no_bias<128,avg_pool_everything<
+using anet_type = dlib::loss_metric<dlib::fc_no_bias<128,dlib::avg_pool_everything<
                             alevel0<
                             alevel1<
                             alevel2<
                             alevel3<
                             alevel4<
-                            max_pool<3,3,2,2,relu<affine<con<32,7,7,2,2,
-                            input_rgb_image_sized<150>
+                            dlib::max_pool<3,3,2,2,dlib::relu<dlib::affine<dlib::con<32,7,7,2,2,
+                            dlib::input_rgb_image_sized<150>
                             >>>>>>>>>>>>;
 
 class FaceDetector
@@ -63,31 +61,31 @@ class FaceDetector
     public:
         FaceDetector()
         {
-            this->light_detector = get_frontal_face_detector();
+            this->light_detector = dlib::get_frontal_face_detector();
             this->detector = &FaceDetector::light_detect;
         }
-        FaceDetector(const string net_path)
+        FaceDetector(const std::string net_path)
         {
-            deserialize(net_path) >> this->dnn_detector;
+            dlib::deserialize(net_path) >> this->dnn_detector;
             this->detector = &FaceDetector::dnn_detect;
         }
 
-        std::vector<rectangle> detect(matrix<rgb_pixel> img)
+        std::vector<dlib::rectangle> detect(dlib::matrix<dlib::rgb_pixel> img)
         {
             return (this->*detector)(img);
         }
     private:
-        typedef std::vector<rectangle> (FaceDetector::*DetectorPtr) (matrix<rgb_pixel>);
+        typedef std::vector<dlib::rectangle> (FaceDetector::*DetectorPtr) (dlib::matrix<dlib::rgb_pixel>);
         DetectorPtr detector;
         net_type dnn_detector;
-        frontal_face_detector light_detector ;
-        std::vector<rectangle> light_detect(matrix<rgb_pixel> img)
+        dlib::frontal_face_detector light_detector ;
+        std::vector<dlib::rectangle> light_detect(dlib::matrix<dlib::rgb_pixel> img)
         {
             return this->light_detector(img);
         }
-        std::vector<rectangle> dnn_detect(matrix<rgb_pixel> img)
+        std::vector<dlib::rectangle> dnn_detect(dlib::matrix<dlib::rgb_pixel> img)
         {
-            std::vector<rectangle> dets;
+            std::vector<dlib::rectangle> dets;
             auto mmod_rects = this->dnn_detector(img);
             for (const auto &r : mmod_rects)
             {
@@ -100,11 +98,11 @@ class FaceDetector
 class FaceAligner
 {
     public:
-        FaceAligner(const string model_path)
+        FaceAligner(const std::string model_path)
         {
-            deserialize(model_path) >> this->pose_model;
+            dlib::deserialize(model_path) >> this->pose_model;
         };
-        full_object_detection align(matrix<rgb_pixel> img, rectangle det)
+        dlib::full_object_detection align(dlib::matrix<dlib::rgb_pixel> img, dlib::rectangle det)
         {
             return this->pose_model(img, det);
         }
@@ -128,7 +126,7 @@ int main(int argc, char** argv)
 
     if (parser.option("help"))
     {
-        cout << "Usage: " << argv[0] << " [options] <list.txt>\n";
+        std::cout << "Usage: " << argv[0] << " [options] <list.txt>" << std::endl;
         parser.print_options();
         return EXIT_SUCCESS;
     }
@@ -136,11 +134,11 @@ int main(int argc, char** argv)
     try
     {
         double threshold = get_option(parser, "threshold", 0.5);
-        string enroll_dir = get_option(parser, "enroll-dir", "enrollment");
+        std::string enroll_dir = get_option(parser, "enroll-dir", "enrollment");
         int pyramid_levels = get_option(parser, "pyramid-levels", 1);
         double scale_factor = get_option(parser, "scale-factor", 1.0);
 
-        string video_path;
+        std::string video_path;
         cv::VideoCapture vid_src;
         if(parser.option("input"))
         {
@@ -161,7 +159,7 @@ int main(int argc, char** argv)
         // open the webcam
         if (!vid_src.isOpened())
         {
-            cerr << "Unable to connect to camera" << endl;
+            std::cerr << "Unable to connect to camera" << std::endl;
             return EXIT_FAILURE;
         }
 
@@ -177,22 +175,22 @@ int main(int argc, char** argv)
 
         // Load the neural network for face recognition
         anet_type anet;
-        deserialize("models/dlib_face_recognition_resnet_model_v1.dat") >> anet;
+        dlib::deserialize("models/dlib_face_recognition_resnet_model_v1.dat") >> anet;
 
         // A mapping between face_descriptors and indentities
-        std::map<matrix<float, 0, 1>, string> enr_map;
+        std::map<dlib::matrix<float, 0, 1>, std::string> enr_map;
         // ----------------- ENROLLMENT -----------------
         {
             auto t0 = chrono::steady_clock::now();
-            cout << "Scanning '" << enroll_dir << "' directory and generating face descriptors." << endl;
-            directory root(enroll_dir);
-            auto files = get_files_in_directory_tree(root, match_endings(".jpg .JPG .png .PNG"), 1);
-            std::vector<string> names;
-            std::vector<matrix<rgb_pixel>> enr_imgs;
-            std::vector<full_object_detection> enr_shapes;
+            std::cout << "Scanning '" << enroll_dir << "' directory and generating face descriptors." << std::endl;
+            dlib::directory root(enroll_dir);
+            auto files = get_files_in_directory_tree(root, dlib::match_endings(".jpg .JPG .png .PNG"), 1);
+            std::vector<std::string> names;
+            std::vector<dlib::matrix<dlib::rgb_pixel>> enr_imgs;
+            std::vector<dlib::full_object_detection> enr_shapes;
             for (const auto& f : files)
             {
-                matrix<rgb_pixel> enr_img;
+                dlib::matrix<dlib::rgb_pixel> enr_img;
                 load_image(enr_img, f.full_name());
                 names.push_back(get_parent_directory(f).name());
                 enr_imgs.push_back(enr_img);
@@ -209,28 +207,28 @@ int main(int argc, char** argv)
             }
             // Make sure we found as many faces as enrollment images
             DLIB_CASSERT(names.size() == enr_shapes.size());
-            std::vector<matrix<rgb_pixel>> enr_faces;
+            std::vector<dlib::matrix<dlib::rgb_pixel>> enr_faces;
             for (size_t i = 0; i < enr_shapes.size(); i++)
             {
-                matrix<rgb_pixel> face_chip;
+                dlib::matrix<dlib::rgb_pixel> face_chip;
                 extract_image_chip(enr_imgs[i], get_face_chip_details(enr_shapes[i], 150, 0.25), face_chip);
-                enr_faces.push_back(move(face_chip));
+                enr_faces.push_back(std::move(face_chip));
             }
-            std::vector<matrix<float, 0, 1>> face_descriptors = anet(enr_faces);
+            std::vector<dlib::matrix<float, 0, 1>> face_descriptors = anet(enr_faces);
             DLIB_CASSERT(names.size() == face_descriptors.size());
             for (size_t i = 0; i < names.size(); i++)
             {
                 enr_map[face_descriptors[i]] = names[i];
             }
             auto t1 = chrono::steady_clock::now();
-            cout << std::fixed << std::setprecision(3) <<
+            std::cout << std::fixed << std::setprecision(3) <<
                 "Computed " << face_descriptors.size() << " face descriptors in " <<
-                chrono::duration_cast<fseconds>(t1 - t0).count() << " seconds" << endl;
+                chrono::duration_cast<fseconds>(t1 - t0).count() << " seconds" << std::endl;
         }
         // ----------------------------------------------
 
         // create the display windows
-        image_window win, det_win;
+        dlib::image_window win, det_win;
         win.set_title("Webcam");
         det_win.set_title("Face detections");
 
@@ -247,10 +245,10 @@ int main(int argc, char** argv)
             // Convert the OpenCV BRG image into a Dlib RGB image
             cv::Mat cv_tmp_rgb;
             cv::cvtColor(cv_tmp, cv_tmp_rgb, cv::COLOR_BGR2RGB);
-            cv_image<rgb_pixel> cv_img(cv_tmp_rgb);
+            dlib::cv_image<dlib::rgb_pixel> cv_img(cv_tmp_rgb);
 
             // Handle the mirroring
-            dlib::matrix<rgb_pixel> mir_img, img;
+            dlib::matrix<dlib::rgb_pixel> mir_img, img;
             if (parser.option("mirror"))
             {
                 dlib::flip_image_left_right(cv_img, mir_img);
@@ -268,9 +266,9 @@ int main(int argc, char** argv)
             }
 
             // vector to store all face landmarks
-            std::vector<full_object_detection> shapes;
+            std::vector<dlib::full_object_detection> shapes;
             // vector to store all aligned faces
-            std::vector<matrix<rgb_pixel>> faces;
+            std::vector<dlib::matrix<dlib::rgb_pixel>> faces;
 
             int cur_pyr_lvl = 1;
             while (cur_pyr_lvl < pyramid_levels)
@@ -290,12 +288,12 @@ int main(int argc, char** argv)
             // align detected faces
             for (const auto& shape : shapes)
             {
-                matrix<rgb_pixel> face_chip;
+                dlib::matrix<dlib::rgb_pixel> face_chip;
                 extract_image_chip(img, get_face_chip_details(shape, 150, 0.25), face_chip);
-                faces.push_back(move(face_chip));
+                faces.push_back(std::move(face_chip));
             }
 
-            std::vector<matrix<float, 0, 1>> face_descriptors = anet(faces);
+            std::vector<dlib::matrix<float, 0, 1>> face_descriptors = anet(faces);
 
             for (size_t i = 0; i < face_descriptors.size(); i++)
             {
@@ -315,14 +313,14 @@ int main(int argc, char** argv)
             win.set_image(img);
             win.add_overlay(render_face_detections(shapes));
             auto t1 = chrono::steady_clock::now();
-            cout << std::fixed << std::setprecision(3) <<
+            std::cout << std::fixed << std::setprecision(3) <<
                 "Detected faces: " << shapes.size() << "\tTime to process frame: " <<
-                chrono::duration_cast<fseconds>(t1 - t0).count() << " seconds\r" << flush;
+                chrono::duration_cast<fseconds>(t1 - t0).count() << " seconds\r" << std::flush;
         }
     }
-    catch(exception& e)
+    catch(std::exception& e)
     {
-        cout << e.what() << endl;
+        std::cout << e.what() << std::endl;
         return EXIT_FAILURE;
     }
 }
