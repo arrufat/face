@@ -171,7 +171,7 @@ int main(int argc, char** argv)
         }
 
         // Initialize the face aligner
-        FaceAligner face_aligner("models/shape_predictor_68_face_landmarks.dat");
+        FaceAligner face_aligner("models/shape_predictor_5_face_landmarks.dat");
 
         // Load the neural network for face recognition
         anet_type anet;
