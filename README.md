@@ -30,7 +30,7 @@ Dlib is included as a submodule, so once OpenCV has been installed, the followin
  All options are customizable, which can be checked by passing the `--help` flag:
  
  ```
- ./build/main --help
+ ./build/face --help
 Usage: ./build/main [options]
 Options:
   --enroll-dir <arg>       Enrollment directory (default: enrollment) 

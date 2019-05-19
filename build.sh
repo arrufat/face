@@ -3,19 +3,13 @@
 # Environment
 [ ! -z ${DLIB_USE_CUDA} ] || DLIB_USE_CUDA=ON
 
+# look for gcc 9 to 5 or use the default gcc
 function find_gcc() {
-  [ `which gcc-7 2>/dev/null` ] && echo "gcc-7" && exit
-  [ `which gcc-6 2>/dev/null` ] && echo "gcc-6" && exit
-  [ `which gcc-5 2>/dev/null` ] && echo "gcc-5" && exit
-  [ `which gcc 2>/dev/null` ] && echo "gcc" && exit
+  for gcc in gcc{-9,-8,-7,-6,-5,}
+  do
+    [ `which ${gcc} 2>/dev/null` ] && echo "${gcc}" && exit
+  done
 }
-
-# setup the git submodules for the first time
-if [ ! -f submodule/dlib/CMakeLists.txt ]
-then
-  git submodule init
-  git submodule update
-fi
 
 # check the models exist
 [ -d models ] || mkdir models
