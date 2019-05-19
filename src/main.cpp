@@ -2,6 +2,8 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <chrono>
+#include <iostream>
+#include <iomanip>
 #include <dlib/assert.h>
 #include <dlib/cmd_line_parser.h>
 #include <dlib/dir_nav.h>
@@ -15,7 +17,8 @@
 
 using namespace dlib;
 using namespace std;
-typedef std::chrono::high_resolution_clock Clock;
+namespace chrono = std::chrono;
+using fseconds = chrono::duration<float>;
 
 // Neural network definition for face detection
 template <long num_filters, typename SUBNET> using con5d = con<num_filters,5,5,2,2,SUBNET>;
@@ -68,7 +71,6 @@ class FaceDetector
             deserialize(net_path) >> this->dnn_detector;
             this->detector = &FaceDetector::dnn_detect;
         }
-        ~FaceDetector() {}
 
         std::vector<rectangle> detect(matrix<rgb_pixel> img)
         {
@@ -87,7 +89,7 @@ class FaceDetector
         {
             std::vector<rectangle> dets;
             auto mmod_rects = this->dnn_detector(img);
-            for (auto &r : mmod_rects)
+            for (const auto &r : mmod_rects)
             {
                 dets.push_back(r);
             }
@@ -160,7 +162,7 @@ int main(int argc, char** argv)
         if (!vid_src.isOpened())
         {
             cerr << "Unable to connect to camera" << endl;
-            return 1;
+            return EXIT_FAILURE;
         }
 
         // Initialize the face detector
@@ -181,14 +183,14 @@ int main(int argc, char** argv)
         std::map<matrix<float, 0, 1>, string> enr_map;
         // ----------------- ENROLLMENT -----------------
         {
-            auto t1 = Clock::now();
+            auto t0 = chrono::steady_clock::now();
             cout << "Scanning '" << enroll_dir << "' directory and generating face descriptors." << endl;
             directory root(enroll_dir);
             auto files = get_files_in_directory_tree(root, match_endings(".jpg .JPG .png .PNG"), 1);
             std::vector<string> names;
             std::vector<matrix<rgb_pixel>> enr_imgs;
             std::vector<full_object_detection> enr_shapes;
-            for (auto &f : files)
+            for (const auto& f : files)
             {
                 matrix<rgb_pixel> enr_img;
                 load_image(enr_img, f.full_name());
@@ -196,11 +198,11 @@ int main(int argc, char** argv)
                 enr_imgs.push_back(enr_img);
             }
             // Detect faces on enrollment images
-            for (auto &enr_img : enr_imgs)
+            for (const auto& enr_img : enr_imgs)
             {
-                auto dets = face_detector.detect(enr_img);
+                const auto& dets = face_detector.detect(enr_img);
                 // Align and store detected faces
-                for (auto &det : dets)
+                for (const auto& det : dets)
                 {
                     enr_shapes.push_back(face_aligner.align(enr_img, det));
                 }
@@ -220,9 +222,10 @@ int main(int argc, char** argv)
             {
                 enr_map[face_descriptors[i]] = names[i];
             }
-            auto t2 = Clock::now();
-            cout << "Computed " << face_descriptors.size() << " face descriptors in ";
-            cout << chrono::duration_cast<chrono::nanoseconds>(t2 - t1).count() * 1e-9 << " seconds" << endl;
+            auto t1 = chrono::steady_clock::now();
+            cout << std::fixed << std::setprecision(3) <<
+                "Computed " << face_descriptors.size() << " face descriptors in " <<
+                chrono::duration_cast<fseconds>(t1 - t0).count() << " seconds" << endl;
         }
         // ----------------------------------------------
 
@@ -234,7 +237,7 @@ int main(int argc, char** argv)
         // Grab and process frames until the main window is closed by the user.
         while(!win.is_closed())
         {
-            auto t1 = Clock::now();
+            auto t0 = chrono::steady_clock::now();
             // Grab a frame
             cv::Mat cv_tmp;
             if (!vid_src.read(cv_tmp))
@@ -279,13 +282,13 @@ int main(int argc, char** argv)
             // detect faces in current frame
             auto dets = face_detector.detect(img);
             // store alignment information for each face
-            for (auto &det : dets)
+            for (const auto& det : dets)
             {
                 shapes.push_back(face_aligner.align(img, det));
             }
 
             // align detected faces
-            for (auto &shape : shapes)
+            for (const auto& shape : shapes)
             {
                 matrix<rgb_pixel> face_chip;
                 extract_image_chip(img, get_face_chip_details(shape, 150, 0.25), face_chip);
@@ -296,7 +299,7 @@ int main(int argc, char** argv)
 
             for (size_t i = 0; i < face_descriptors.size(); i++)
             {
-                for (auto const &entry : enr_map)
+                for (const auto& entry : enr_map)
                 {
                     if (length(face_descriptors[i] - entry.first) < threshold)
                     {
@@ -311,21 +314,16 @@ int main(int argc, char** argv)
             win.clear_overlay();
             win.set_image(img);
             win.add_overlay(render_face_detections(shapes));
-            auto t2 = Clock::now();
-            cout << "Detected faces: " << shapes.size() << "\tTime to process frame: ";
-            cout << chrono::duration_cast<chrono::nanoseconds>(t2 - t1).count() * 1e-9 << " seconds\r" << flush;
+            auto t1 = chrono::steady_clock::now();
+            cout << std::fixed << std::setprecision(3) <<
+                "Detected faces: " << shapes.size() << "\tTime to process frame: " <<
+                chrono::duration_cast<fseconds>(t1 - t0).count() << " seconds\r" << flush;
         }
-    }
-    catch(serialization_error& e)
-    {
-        cout << "You need dlib's default face landmarking model file to run this example." << endl;
-        cout << "You can get it from the following URL: " << endl;
-        cout << "   http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2" << endl;
-        cout << endl << e.what() << endl;
     }
     catch(exception& e)
     {
         cout << e.what() << endl;
+        return EXIT_FAILURE;
     }
 }
 
