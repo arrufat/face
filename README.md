@@ -1,8 +1,8 @@
-# Face detection and recognition using Dlib
+# Face detection and recognition using dlib
 
 ## Introduction
 
-The main purpose of this repository is to provide an end to end solution for face detection and recognition using the amazing Dlib library.
+The main purpose of this repository is to provide an end to end solution for face detection and recognition using the amazing [dlib](http://dlib.net/) library.
 
 ## Installation
 
