@@ -313,10 +313,11 @@ int main(int argc, char** argv)
             win.set_image(img);
             win.add_overlay(render_face_detections(shapes));
             auto t1 = chrono::steady_clock::now();
+            auto real_fps = 1.0 / chrono::duration_cast<fseconds>(t1 - t0).count();
             std::cout << std::fixed << std::setprecision(3) <<
-                "Detected faces: " << shapes.size() << "\tTime to process frame: " <<
-                chrono::duration_cast<fseconds>(t1 - t0).count() << " seconds\r" << std::flush;
+                "Detected faces: " << shapes.size() << "\tFPS: " << real_fps << "    \r" << std::flush;
         }
+        std::cout << std::endl;
     }
     catch(std::exception& e)
     {
