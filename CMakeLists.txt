@@ -24,7 +24,7 @@ find_package(OpenCV REQUIRED)
 
 # Add Dlib
 include(FetchContent)
-set(DLIB_TAG v19.18)
+set(DLIB_TAG v19.19)
 FetchContent_Declare(
     dlib
     GIT_REPOSITORY https://github.com/davisking/dlib.git
